@@ -604,7 +604,8 @@ class LeKiwiRobotConfig(RobotConfig):
 @dataclass
 class PiperRobotConfig(RobotConfig):
     inference_time: bool
-    
+    enable_gamepad: bool = True  # 添加手柄控制开关，默认启用
+
     follower_arm: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
             "main": PiperMotorsBusConfig(
@@ -625,24 +626,24 @@ class PiperRobotConfig(RobotConfig):
 
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            # "one": OpenCVCameraConfig(
-            #     camera_index=0,
-            #     fps=30,
-            #     width=640,
-            #     height=480,
-            # ),
-            # "two": OpenCVCameraConfig(
-            #     camera_index=2,
-            #     fps=30,
-            #     width=640,
-            #     height=480,
-            # ),
-            "one": IntelRealSenseCameraConfig(
-                name="Intel RealSense D435I",
+            "out": OpenCVCameraConfig(
+                camera_index=15,
                 fps=30,
                 width=640,
                 height=480,
-                rotation=None,
             ),
+            "wrist": OpenCVCameraConfig(
+                camera_index=6,
+                fps=30,
+                width=640,
+                height=480,
+            ),
+            # "one": IntelRealSenseCameraConfig(
+            #     name="Intel RealSense D435I",
+            #     fps=30,
+            #     width=640,
+            #     height=480,
+            #     rotation=None,
+            # ),
         }
     )
