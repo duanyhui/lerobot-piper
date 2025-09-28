@@ -28,12 +28,20 @@ class PiperRobot:
         # build piper motors
         self.piper_motors = make_motors_buses_from_configs(self.config.follower_arm)
         self.arm = self.piper_motors['main']
-        
-        # build gamepad teleop
-        if not self.inference_time:
-            self.teleop = SixAxisArmController()
+
+        # build gamepad teleop - 只在需要且不是推理时间时初始化
+        if not self.inference_time and getattr(self.config, 'enable_gamepad', True):
+            try:
+                self.teleop = SixAxisArmController()
+            except Exception as e:
+                print(f"警告: 无法初始化手柄控制器: {e}")
+                print("将在没有手柄的情况下继续运行...")
+                self.teleop = None
         else:
             self.teleop = None
+        
+        # 存储初始的安全位置（home position）
+        self.safe_position = None
         
         self.logs = {}
         self.is_connected = False
@@ -103,7 +111,7 @@ class PiperRobot:
     def disconnect(self) -> None:
         """move to home position, disenable piper and cameras"""
         # move piper to home position, disable
-        if not self.inference_time:
+        if not self.inference_time and self.teleop is not None:
             self.teleop.stop()
 
         # disconnect piper
@@ -126,8 +134,11 @@ class PiperRobot:
             raise ConnectionError()
         
         self.arm.apply_calibration()
-        if not self.inference_time:
+        if not self.inference_time and self.teleop is not None:
             self.teleop.reset()
+        
+        # 保存安全位置作为默认动作
+        self.safe_position = self.arm.read()
 
 
 
@@ -136,17 +147,49 @@ class PiperRobot:
     ) -> None | tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         if not self.is_connected:
             raise ConnectionError()
-        
-        if self.teleop is None and self.inference_time:
-            self.teleop = SixAxisArmController()
 
-        # read target pose state as 
+        # read target pose state
         before_read_t = time.perf_counter()
         state = self.arm.read() # read current joint position from robot
-        action = self.teleop.get_action() # target joint position from gamepad
         self.logs["read_pos_dt_s"] = time.perf_counter() - before_read_t
 
-        # do action
+        # 获取动作指令
+        if self.teleop is not None:
+            action = self.teleop.get_action() # target joint position from gamepad
+        else:
+            # 如果没有手柄，使用安全位置作为目标动作
+            if self.safe_position is not None:
+                action = self.safe_position
+            else:
+                # 如果没有安全位置，使用当前位置但不移动（跳过写入）
+                print("警告: 没有手柄且没有安全位置，机械臂将保持当前位置")
+                action = state
+                # 不执行任何动作，直接返回
+                if not record_data:
+                    return
+                
+                state_tensor = torch.as_tensor(list(state.values()), dtype=torch.float32)
+                action_tensor = torch.as_tensor(list(action.values()), dtype=torch.float32)
+
+                # Capture images from cameras
+                images = {}
+                for name in self.cameras:
+                    before_camread_t = time.perf_counter()
+                    images[name] = self.cameras[name].async_read()
+                    images[name] = torch.from_numpy(images[name])
+                    self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+                    self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+
+                # Populate output dictionnaries
+                obs_dict, action_dict = {}, {}
+                obs_dict["observation.state"] = state_tensor
+                action_dict["action"] = action_tensor
+                for name in self.cameras:
+                    obs_dict[f"observation.images.{name}"] = images[name]
+
+                return obs_dict, action_dict
+
+        # do action (只有在有有效动作时才执行)
         before_write_t = time.perf_counter()
         target_joints = list(action.values())
         self.arm.write(target_joints)
@@ -227,10 +270,9 @@ class PiperRobot:
         """ move to home position after record one episode """
         self.run_calibration()
 
-    
+
     def __del__(self):
-        if self.is_connected:
+        if hasattr(self, 'is_connected') and self.is_connected:
             self.disconnect()
-            if not self.inference_time:
-                self.teleop.stop()
-                
+        if not getattr(self, 'inference_time', True) and hasattr(self, 'teleop') and self.teleop is not None:
+            self.teleop.stop()
