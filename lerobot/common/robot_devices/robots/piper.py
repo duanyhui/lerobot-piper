@@ -41,7 +41,7 @@ class PiperRobot:
             self.teleop = None
         
         # 存储初始的安全位置（home position）
-        self.safe_position = None
+        self.safe_position = [0,0,0,0,0,0,0]
         
         self.logs = {}
         self.is_connected = False
@@ -117,8 +117,12 @@ class PiperRobot:
         # disconnect piper
         self.arm.safe_disconnect()
         print("piper disable after 5 seconds")
+        print("---------------------")
+        print("piper disconnected")
+        print("不下使能")
+
         time.sleep(5)
-        self.arm.connect(enable=False)
+        # self.arm.connect(enable=False)
 
         # disconnect cameras
         if len(self.cameras) > 0:
@@ -159,7 +163,18 @@ class PiperRobot:
         else:
             # 如果没有手柄，使用安全位置作为目标动作
             if self.safe_position is not None:
-                action = self.safe_position
+                # self.safe_position 来自 self.arm.read()，单位为 0.001 度（毫度）
+                # write() 期望 6 个关节使用弧度，夹爪使用 0.001 度整数
+                d = self.safe_position
+                action = {
+                    'joint0': (d['joint_1'] / 1000.0) * (np.pi / 180.0),
+                    'joint1': (d['joint_2'] / 1000.0) * (np.pi / 180.0),
+                    'joint2': (d['joint_3'] / 1000.0) * (np.pi / 180.0),
+                    'joint3': (d['joint_4'] / 1000.0) * (np.pi / 180.0),
+                    'joint4': (d['joint_5'] / 1000.0) * (np.pi / 180.0),
+                    'joint5': (d['joint_6'] / 1000.0) * (np.pi / 180.0),
+                    'gripper': d['gripper'],  # 夹爪保持毫度单位
+                }
             else:
                 # 如果没有安全位置，使用当前位置但不移动（跳过写入）
                 print("警告: 没有手柄且没有安全位置，机械臂将保持当前位置")

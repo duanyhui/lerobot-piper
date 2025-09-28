@@ -111,10 +111,10 @@ class PiperMotorsBus:
         joint_3 = round(target_joint[3]*self.joint_factor)
         joint_4 = round(target_joint[4]*self.joint_factor)
         joint_5 = round(target_joint[5]*self.joint_factor)
-        gripper_range = round(target_joint[6]*1000*1000)  # 修复：改为*1000而不是*1000*1000
+        gripper_range = round(target_joint[6])  # target_joint[6] 已经是以0.001度为单位的整数
         print("--------------------")
-        print(f"目标关节位置 (1度): {[joint_0*1000, joint_1*1000, joint_2*1000, joint_3*1000, joint_4*1000, joint_5*1000]}")
-        print(f"目标夹爪位置 (1度): {gripper_range*1000}")
+        print(f"目标关节位置 (0.001度): {[joint_0, joint_1, joint_2, joint_3, joint_4, joint_5]}")
+        print(f"目标夹爪位置 (0.001度): {gripper_range}")
         print("--------------------")
         self.piper.MotionCtrl_2(0x01, 0x01, 100, 0x00) # joint control
         self.piper.JointCtrl(joint_0, joint_1, joint_2, joint_3, joint_4, joint_5)
