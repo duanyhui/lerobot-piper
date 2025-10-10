@@ -40,6 +40,9 @@ class PiperRobot:
         else:
             self.teleop = None
         
+        # 是否只读：外部已实现遥操作，本进程只读取（不下发指令）
+        self.read_only = getattr(self.config, 'read_only', False)
+
         # 存储初始的安全位置（home position）
         self.safe_position = [0,0,0,0,0,0,0]
         
@@ -115,14 +118,15 @@ class PiperRobot:
             self.teleop.stop()
 
         # disconnect piper
-        self.arm.safe_disconnect()
-        print("piper disable after 5 seconds")
-        print("---------------------")
-        print("piper disconnected")
-        print("不下使能")
-
-        time.sleep(5)
-        # self.arm.connect(enable=False)
+        if not self.read_only:
+            self.arm.safe_disconnect()
+            print("piper disable after 5 seconds")
+            print("---------------------")
+            print("piper disconnected")
+            time.sleep(5)
+            # self.arm.connect(enable=False)
+        else:
+            print("只读模式：跳过安全位姿与断使能，不下发控制指令")
 
         # disconnect cameras
         if len(self.cameras) > 0:
@@ -137,9 +141,11 @@ class PiperRobot:
         if not self.is_connected:
             raise ConnectionError()
         
-        self.arm.apply_calibration()
-        if not self.inference_time and self.teleop is not None:
-            self.teleop.reset()
+        # 只读模式下不移动机械臂
+        if not self.read_only:
+            self.arm.apply_calibration()
+            if not self.inference_time and self.teleop is not None:
+                self.teleop.reset()
         
         # 保存安全位置作为默认动作
         self.safe_position = self.arm.read()
@@ -156,6 +162,29 @@ class PiperRobot:
         before_read_t = time.perf_counter()
         state = self.arm.read() # read current joint position from robot
         self.logs["read_pos_dt_s"] = time.perf_counter() - before_read_t
+
+        # 只读模式：不下发目标，直接记录当前状态作为动作
+        if self.read_only:
+            if not record_data:
+                return
+            state_tensor = torch.as_tensor(list(state.values()), dtype=torch.float32)
+            action_tensor = torch.as_tensor(list(state.values()), dtype=torch.float32)
+
+            # Capture images from cameras
+            images = {}
+            for name in self.cameras:
+                before_camread_t = time.perf_counter()
+                images[name] = self.cameras[name].async_read()
+                images[name] = torch.from_numpy(images[name])
+                self.logs[f"read_camera_{name}_dt_s"] = self.cameras[name].logs["delta_timestamp_s"]
+                self.logs[f"async_read_camera_{name}_dt_s"] = time.perf_counter() - before_camread_t
+
+            obs_dict, action_dict = {}, {}
+            obs_dict["observation.state"] = state_tensor
+            action_dict["action"] = action_tensor
+            for name in self.cameras:
+                obs_dict[f"observation.images.{name}"] = images[name]
+            return obs_dict, action_dict
 
         # 获取动作指令
         if self.teleop is not None:
@@ -207,7 +236,8 @@ class PiperRobot:
         # do action (只有在有有效动作时才执行)
         before_write_t = time.perf_counter()
         target_joints = list(action.values())
-        self.arm.write(target_joints)
+        if not self.read_only:
+            self.arm.write(target_joints)
         self.logs["write_pos_dt_s"] = time.perf_counter() - before_write_t
 
         if not record_data:
@@ -245,7 +275,10 @@ class PiperRobot:
 
         # send to motors, torch to list
         target_joints = action.tolist()
-        self.arm.write(target_joints)
+        if not self.read_only:
+            self.arm.write(target_joints)
+        else:
+            print("只读模式：忽略 send_action 下发")
 
         return action
 

@@ -605,6 +605,8 @@ class LeKiwiRobotConfig(RobotConfig):
 class PiperRobotConfig(RobotConfig):
     inference_time: bool
     enable_gamepad: bool = True  # 添加手柄控制开关，默认启用
+    # 当外部已实现遥操作且只需读取角度（不下发控制指令）时，启用只读模式
+    read_only: bool = False
 
     follower_arm: dict[str, MotorsBusConfig] = field(
         default_factory=lambda: {
@@ -627,13 +629,13 @@ class PiperRobotConfig(RobotConfig):
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
             "out": OpenCVCameraConfig(
-                camera_index=15,
+                camera_index=12,
                 fps=30,
                 width=640,
                 height=480,
             ),
             "wrist": OpenCVCameraConfig(
-                camera_index=6,
+                camera_index=10,
                 fps=30,
                 width=640,
                 height=480,
